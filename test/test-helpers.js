@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 
 function makeUsersArray() {
   return [
@@ -127,7 +128,7 @@ function makeCommentsArray(users, articles) {
   ];
 }
 
-function makeExpectedArticle(users, article, comments=[]) {
+function makeExpectedArticle(users, article, comments = []) {
   const author = users
     .find(user => user.id === article.author_id)
 
@@ -211,35 +212,47 @@ function cleanTables(db) {
         blogful_comments
       `
     )
-    .then(() =>
-      Promise.all([
-        trx.raw(`ALTER SEQUENCE blogful_articles_id_seq minvalue 0 START WITH 1`),
-        trx.raw(`ALTER SEQUENCE blogful_users_id_seq minvalue 0 START WITH 1`),
-        trx.raw(`ALTER SEQUENCE blogful_comments_id_seq minvalue 0 START WITH 1`),
-        trx.raw(`SELECT setval('blogful_articles_id_seq', 0)`),
-        trx.raw(`SELECT setval('blogful_users_id_seq', 0)`),
-        trx.raw(`SELECT setval('blogful_comments_id_seq', 0)`),
-      ])
-    )
+      .then(() =>
+        Promise.all([
+          trx.raw(`ALTER SEQUENCE blogful_articles_id_seq minvalue 0 START WITH 1`),
+          trx.raw(`ALTER SEQUENCE blogful_users_id_seq minvalue 0 START WITH 1`),
+          trx.raw(`ALTER SEQUENCE blogful_comments_id_seq minvalue 0 START WITH 1`),
+          trx.raw(`SELECT setval('blogful_articles_id_seq', 0)`),
+          trx.raw(`SELECT setval('blogful_users_id_seq', 0)`),
+          trx.raw(`SELECT setval('blogful_comments_id_seq', 0)`),
+        ])
+      )
   )
 }
 
-function seedArticlesTables(db, users, articles, comments=[]) {
-  // use a transaction to group the queries and auto rollback on any failure
-  return db.transaction(async trx => {
-    await trx.into('blogful_users').insert(users)
-    await trx.into('blogful_articles').insert(articles)
-    // update the auto sequence to match the forced id values
-    await Promise.all([
-      trx.raw(
+function seedUsers(db, users) {
+  const preppedUsers = users.map(user => ({
+    ...user,
+    password: bcrypt.hashSync(user.password, 1)
+  }))
+  return db.into('blogful_users').insert(preppedUsers)
+    .then(() =>
+
+      // update the auto sequence to stay in sync
+
+      db.raw(
         `SELECT setval('blogful_users_id_seq', ?)`,
         [users[users.length - 1].id],
-      ),
-      trx.raw(
-        `SELECT setval('blogful_articles_id_seq', ?)`,
-        [articles[articles.length - 1].id],
-      ),
-    ])
+      )
+    )
+}
+
+function seedArticlesTables(db, users, articles, comments = []) {
+  // use a transaction to group the queries and auto rollback on any failure
+  return db.transaction(async trx => {
+    await seedUsers(trx, users)
+    await trx.into('blogful_articles').insert(articles)
+    // update the auto sequence to match the forced id values
+
+    await trx.raw(
+      `SELECT setval('blogful_articles_id_seq', ?)`,
+      [articles[articles.length - 1].id],
+    )
     // only insert comments if there are some, also update the sequence counter
     if (comments.length) {
       await trx.into('blogful_comments').insert(comments)
@@ -252,9 +265,7 @@ function seedArticlesTables(db, users, articles, comments=[]) {
 }
 
 function seedMaliciousArticle(db, user, article) {
-  return db
-    .into('blogful_users')
-    .insert([user])
+  return seedUsers(db, [user])
     .then(() =>
       db
         .into('blogful_articles')
@@ -280,4 +291,5 @@ module.exports = {
   seedArticlesTables,
   seedMaliciousArticle,
   makeAuthHeader,
+  seedUsers,
 }
