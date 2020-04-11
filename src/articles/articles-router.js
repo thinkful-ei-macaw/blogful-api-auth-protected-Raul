@@ -1,6 +1,6 @@
 const express = require('express')
 const ArticlesService = require('./articles-service')
-const { requireAuth } = require('../middleware/basic-auth')
+const { requireAuth } = require('../middleware/jwt-auth')
 
 const articlesRouter = express.Router()
 
@@ -36,7 +36,7 @@ articlesRouter.route('/:article_id/comments/')
       .catch(next)
   })
 
-/* async/await syntax for promises */
+
 async function checkArticleExists(req, res, next) {
   try {
     const article = await ArticlesService.getById(
